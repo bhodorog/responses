@@ -11,6 +11,7 @@ import requests
 import responses
 from requests.exceptions import ConnectionError, HTTPError
 from responses import BaseResponse, Response
+from urllib3.response import HTTPHeaderDict
 
 try:
     from mock import patch, Mock
@@ -638,6 +639,36 @@ def test_activate_doesnt_change_signature_for_method():
     test_case = TestCase()
     assert test_case.decorated_test_function(1, 2) == test_case.test_function(1, 2)
     assert test_case.decorated_test_function(3) == test_case.test_function(3)
+
+
+@pytest.mark.parametrize("http_headers", [
+    HTTPHeaderDict([
+        ('Set-Cookie', 'One=1; HttpOnly; Path=it/doesnt/matter; Expires=Sun, 06 Nov 2024 08:49:37 GMT; Secure; Max-Age=13'),
+        ('Set-Cookie', 'Two=2; Path=it/really/doesnt/matter')
+    ])
+])
+def test_response_cookies_for_real(http_headers):
+    body = b"test callback"
+    status = 200
+    url = "http://example.com/"
+    headers = dict(http_headers.itermerged())
+
+    def request_callback(request):
+
+        return (status, headers, body)
+
+    @responses.activate
+    def run():
+        responses.add_callback(responses.GET, url, request_callback)
+        resp = requests.get(url)
+        assert resp.text == "test callback"
+        assert resp.status_code == status
+        assert resp.cookies
+        assert "One" in resp.cookies
+        assert "Two" in resp.cookies
+
+    run()
+    assert_reset()
 
 
 def test_response_cookies():
